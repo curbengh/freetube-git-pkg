@@ -1,0 +1,4 @@
+FreeTube/
+src/
+pkg/
+*.pkg.tar.zst
