@@ -1,0 +1,66 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_ver: ${{ steps.upstream-ver.outputs.upstream_ver }}
+      repo_ver: ${{ steps.repo-ver.outputs.repo_ver }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Check latest tag
+        id: repo-ver
+        run: |
+          repo_ver="$(git tag --sort=committerdate | tail -1)"
+          echo "repo_ver=${repo_ver}" >> "$GITHUB_OUTPUT"
+      - name: Clone repo
+        run: |
+          git clone --depth 1 'https://github.com/FreeTubeApp/FreeTube'
+      - name: Check upstream version
+        id: upstream-ver
+        working-directory: ./FreeTube
+        run: |
+          tag="$(git tag --sort=committerdate | tail -1 | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')"
+          rev_no="$(git rev-list --count HEAD)"
+          commit="$(git rev-parse --short=7 HEAD)"
+          pkgver="${tag}.r${rev_no}.${commit}"
+          echo "upstream_ver=$pkgver" >> "$GITHUB_OUTPUT"
+  build_and_release:
+    if: needs.test.outputs.upstream_ver != needs.test.outputs.repo_ver
+    needs: test
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: Enable root to run makepkg
+        run: |
+          sed -i '/E_ROOT/d' /usr/bin/makepkg
+      - name: Build
+        run: |
+          makepkg -s --noconfirm
+      - name: Generate hashsums
+        run: |
+          find "./" -maxdepth 1 -not -path '*/.*' -type f -name "*.zst" | while read FILE; do
+            sha256sum "$FILE" > "${FILE}.sha256sum"
+          done;
+      - name: "Upload Artifact"
+        uses: actions/upload-artifact@v3
+        with:
+          name: artifacts
+          path: ./*.zst
+          retention-days: 30
+      - uses: ncipollo/release-action@v1
+        with:
+          tag: ${{needs.test.outputs.upstream_ver}}
+          body: ${{needs.test.outputs.upstream_ver}}
+          commit: master
+          makeLatest: true
+          artifacts: "./*.zst,./*.sha256sum"
