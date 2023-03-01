@@ -43,6 +43,9 @@ jobs:
       - name: Enable root to run makepkg
         run: |
           sed -i '/E_ROOT/d' /usr/bin/makepkg
+      - name: Update packages
+        run: |
+          pacman -Syu --noconfirm
       - name: Build
         run: |
           makepkg -s --noconfirm
